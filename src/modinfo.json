@@ -1,0 +1,10 @@
+{
+	"id": "poly",
+	"name": "poly",
+	"version": "0.1",
+	"authors": "thalber",
+	"description": "lua guh",
+	"requirements": [],
+	"requirements_names": [],
+	"checksum_override_version": false
+}
