@@ -50,12 +50,12 @@ public partial class Mod : BIE.BaseUnityPlugin {
 			if (fields.Count() < 2) {
 				return member.Name;
 			}
-			string res = $"{member.DeclaringType.Name}_{member.Name}";
+			string res = $"{typeof(TM).Name} rename into {member.DeclaringType.Name}_{member.Name}";
 			Logger.LogDebug(res);
 			return res;
 		}
 		ILCursor c = new(context);
-		Logger.LogDebug("ilhook go");
+		Logger.LogDebug("ilhook 0 go");
 		c.GotoNext(MoveType.Before,
 			x => x.MatchCallvirt<RFL.MemberInfo>("get_Name"),
 			x => x.MatchLdloc(14),
@@ -63,16 +63,36 @@ public partial class Mod : BIE.BaseUnityPlugin {
 			x => x.MatchCall<LUA.Interop.StandardUserDataDescriptor>("get_AccessMode"),
 			x => x.MatchCall<LUA.Interop.FieldMemberDescriptor>("TryCreateIfVisible")
 			);
-		Logger.LogDebug("ilhook inj");
+		Logger.LogDebug("ilhook 0 inj");
 		c.Index--;
-		Logger.LogDebug("ilhook rm1");
+		Logger.LogDebug("ilhook 0 rm1");
 		c.Emit(OpCodes.Ldarg_0);
 		c.Index += 2;
 		c.Prev.OpCode = OpCodes.Nop;
 		c.Prev.Operand = null;
-		Logger.LogDebug("ilhook rm2");
+		Logger.LogDebug("ilhook 0 rm2");
 		c.EmitDelegate((GetUniqueName<RFL.FieldInfo>));
-		Logger.LogDebug("ilhook done");
+		Logger.LogDebug("ilhook 0 done");
+		//Logger.LogDebug(context.ToString());
+		c.Index = 0;
+		Logger.LogDebug("ilhook 1 go");
+		c.GotoNext(MoveType.Before,
+			x => x.MatchCallvirt<RFL.MemberInfo>("get_Name"),
+			x => x.MatchLdloc(12),
+			x => x.MatchLdarg(0),
+			x => x.MatchCall<LUA.Interop.StandardUserDataDescriptor>("get_AccessMode"),
+			x => x.MatchCall<LUA.Interop.PropertyMemberDescriptor>("TryCreateIfVisible")
+			);
+		Logger.LogDebug("ilhook 1 inj");
+		c.Index--;
+		Logger.LogDebug("ilhook 1 rm1");
+		c.Emit(OpCodes.Ldarg_0);
+		c.Index += 2;
+		c.Prev.OpCode = OpCodes.Nop;
+		c.Prev.Operand = null;
+		Logger.LogDebug("ilhook 1 rm2");
+		c.EmitDelegate((GetUniqueName<RFL.PropertyInfo>));
+		Logger.LogDebug("ilhook 1 done");
 		Logger.LogDebug(context.ToString());
 	}
 	public void Init(On.RainWorld.orig_OnModsInit orig, RainWorld self) {
