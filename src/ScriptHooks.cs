@@ -1,7 +1,9 @@
 namespace Poly;
 
-internal static partial class DynamicHooks {
+internal static partial class ScriptHooks {
 	internal static HashSet<PersistentScriptData> __pScripts = new();
+	internal static void __AddPersScript(PersistentScriptData pscript) => __pScripts.Add(pscript);
+	internal static void __ClearScripts() => __pScripts.Clear();
 	internal static void __Init() {
 		On.Room.Loaded += __RoomLoad;
 		On.AbstractWorldEntity.Update += __AbstractObjectUpdate;
@@ -28,7 +30,7 @@ internal static partial class DynamicHooks {
 				fun.Function.Call(args);
 			}
 			catch (Exception ex) {
-				__ErrorMessage(site, $"invoking Lua callback of {pd.name}", ex);
+				__logger.LogError(__ErrorMessage(site, $"invoking Lua callback of {pd.name}", ex));
 			}
 		}
 	}

@@ -23,7 +23,7 @@ public partial class Mod : BIE.BaseUnityPlugin {
 			_InitConfig();
 			__logger = Logger;
 			On.RainWorld.OnModsInit += _Init; Logger.LogMessage("Poly is running MoonSharp!\n" + LUA.Script.GetBanner());
-			DynamicHooks.__Init();
+			ScriptHooks.__Init();
 			LUA.Script.WarmUp();
 			LUA.Script.DefaultOptions.ScriptLoader = new AssetScriptLoader();
 			//LUA.UserData.DefaultAccessMode = LUA.InteropAccessMode.Preoptimized;
@@ -105,6 +105,7 @@ public partial class Mod : BIE.BaseUnityPlugin {
 			finally {
 				_collectDescriptorsTask = null;
 			}
+			ScriptHooks.__ClearScripts();
 			const string startup_folder = "lua-startup";
 			foreach (string file in AssetManager.ListDirectory(startup_folder, false, false)) {
 				try {
@@ -115,18 +116,14 @@ public partial class Mod : BIE.BaseUnityPlugin {
 					LUA.Script startupscript = InitBlankScript();
 					startupscript.Globals["rainworld"] = self;
 					LUA.DynValue ret = startupscript.DoFile($"{startup_folder}/{fi.Name}");
-					
-					
 					//if (ret is null || ret.Type is not LUA.DataType.Table) continue;
 					//LUA.Table returns = ret.Table;
 					Dictionary<DynHookEntryPoints, LUA.DynValue> presetHooks = new();
-					
-					foreach (DynHookEntryPoints ep in Enum.GetValues(typeof(DynHookEntryPoints))){
+					foreach (DynHookEntryPoints ep in Enum.GetValues(typeof(DynHookEntryPoints))) {
 						if (startupscript.Globals.Get(ep.ToString()) == LUA.DynValue.Nil) continue;
 						Logger.LogDebug($"{fi.Name} registering hook callback for {ep}");
 						presetHooks[ep] = startupscript.Globals.Get(ep.ToString());
 					}
-
 					// foreach (LUA.TablePair pair in returns.Pairs) {
 					// 	if (!Enum.TryParse<DynHookEntryPoints>(pair.Key.ToString(), out DynHookEntryPoints ep)) continue;
 					// 	Logger.LogDebug($"{fi.Name} registering hook callback for {ep}");
@@ -134,7 +131,7 @@ public partial class Mod : BIE.BaseUnityPlugin {
 					// }
 					if (presetHooks.Count is 0) continue;
 					PersistentScriptData psd = new(fi.Name, startupscript, presetHooks);
-					DynamicHooks.__pScripts.Add(psd);
+					ScriptHooks.__pScripts.Add(psd);
 				}
 				catch (Exception ex) {
 					__logger.LogError($"Error on startup script execution: {ex}");
@@ -177,17 +174,23 @@ public partial class Mod : BIE.BaseUnityPlugin {
 		THR.Tasks.Task.WaitAll(typeTasks.ToArray());
 	}
 	public static LUA.Script InitBlankScript() {
+		string getFullName(Type t) {
+			if (t.DeclaringType is Type dect) return $"{getFullName(dect)}.{t.Name}";
+			return t.Name;
+		}
+
 		LUA.Script script = new(LUA.CoreModules.Preset_Default);
 		LUA.Table table = new(script);
 		lock (__staticDescriptors) {
 			foreach (KeyValuePair<Type, LUA.DynValue> kvp in __staticDescriptors) {
-				table[kvp.Key.Name] = kvp.Value;
+				table[getFullName(kvp.Key)] = kvp.Value;
 			}
 		}
 		script.Globals["bepin"] = script.Globals.RegisterModuleType(typeof(LuaModules.Bepin));
 		script.Globals["assets"] = script.Globals.RegisterModuleType(typeof(LuaModules.Assets));
 		script.Globals["hooks"] = script.Globals.RegisterModuleType(typeof(LuaModules.Hooks));
 		script.Globals["statics"] = table;
+		//todo: statics do not seem to work
 		return script;
 	}
 }
