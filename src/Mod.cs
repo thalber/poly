@@ -15,32 +15,31 @@ public partial class Mod : BIE.BaseUnityPlugin {
 
 	//todo: register all types in assemblycsharp for interop
 	internal static BIE.Logging.ManualLogSource __logger = default!;
-	internal RFL.Assembly _asmcshaprAsm = typeof(AboveCloudsView).Assembly;
-	internal RFL.Assembly _unitycoreAsm = typeof(Vector2).Assembly;
-	internal Dictionary<Type, LUA.Interop.IUserDataDescriptor> _typeDescriptors = new();
-	internal Dictionary<Type, LUA.DynValue> _staticDescriptors = new();
+	internal static Dictionary<Type, LUA.Interop.IUserDataDescriptor> __typeDescriptors = new();
+	internal static Dictionary<Type, LUA.DynValue> __staticDescriptors = new();
 	internal THR.Tasks.Task? _collectDescriptorsTask = null;
 	internal ILHook? _fieldOverloads;
 
 	public void OnEnable() {
 		try {
-
-			On.RainWorld.OnModsInit += Init; Logger.LogMessage("Poly is running MoonSharp!\n" + LUA.Script.GetBanner());
+			__logger = Logger;
+			On.RainWorld.OnModsInit += _Init; Logger.LogMessage("Poly is running MoonSharp!\n" + LUA.Script.GetBanner());
+			DynamicHooks.__Init();
 			LUA.Script.WarmUp();
 			LUA.Script.DefaultOptions.ScriptLoader = new AssetScriptLoader();
-			LUA.UserData.DefaultAccessMode = LUA.InteropAccessMode.Preoptimized;
+			//LUA.UserData.DefaultAccessMode = LUA.InteropAccessMode.Preoptimized;
 			LUA.UserData.RegistrationPolicy = LUA.Interop.InteropRegistrationPolicy.Automatic;
-			_fieldOverloads = new(typeof(LUA.Interop.StandardUserDataDescriptor).GetMethod("FillMemberList", BF_ALL_CONTEXTS_INSTANCE), SupportFieldOverloads);
-			_fieldOverloads.Apply();
+			_fieldOverloads = new(typeof(LUA.Interop.StandardUserDataDescriptor).GetMethod("FillMemberList", BF_ALL_CONTEXTS_INSTANCE), _SupportFieldOverloads);
+			//_fieldOverloads.Apply();
 			//LUA.UserData.RegisterType()
-			_collectDescriptorsTask = THR.Tasks.Task.Run(() => RegisterDescriptors());
+			_RegisterDescriptors();
+			//_collectDescriptorsTask = THR.Tasks.Task.Run(() => _RegisterDescriptors());
 		}
 		catch (Exception ex) {
 			Logger.LogFatal(ex);
 		}
-
 	}
-	public void SupportFieldOverloads(ILContext context) {
+	private void _SupportFieldOverloads(ILContext context) {
 		string GetUniqueName<TM>
 			(LUA.Interop.IUserDataDescriptor self, TM member)
 			where TM : RFL.MemberInfo {
@@ -50,7 +49,7 @@ public partial class Mod : BIE.BaseUnityPlugin {
 			if (fields.Count() < 2) {
 				return member.Name;
 			}
-			string res = $"{typeof(TM).Name} rename into {member.DeclaringType.Name}_{member.Name}";
+			string res = $"{typeof(TM).Name} rename {member.Name} into {member.DeclaringType.Name}_{member.Name}";
 			Logger.LogDebug(res);
 			return res;
 		}
@@ -95,12 +94,11 @@ public partial class Mod : BIE.BaseUnityPlugin {
 		Logger.LogDebug("ilhook 1 done");
 		Logger.LogDebug(context.ToString());
 	}
-	public void Init(On.RainWorld.orig_OnModsInit orig, RainWorld self) {
+	private void _Init(On.RainWorld.orig_OnModsInit orig, RainWorld self) {
 		try {
 			orig(self);
-			__logger = Logger;
 			try {
-				THR.Tasks.Task.WaitAll(_collectDescriptorsTask);
+				if (_collectDescriptorsTask is not null) THR.Tasks.Task.WaitAll(_collectDescriptorsTask);
 			}
 			catch (Exception ex) {
 				__logger.LogError(ex);
@@ -111,16 +109,36 @@ public partial class Mod : BIE.BaseUnityPlugin {
 			const string startup_folder = "lua-startup";
 			foreach (string file in AssetManager.ListDirectory(startup_folder, false, false)) {
 				try {
-					LUA.DynValue crw_lua = LUA.UserData.Create(self);
+					//LUA.DynValue crw_lua = LUA.UserData.Create(self);
 					IO.FileInfo fi = new(file);
 					if (fi.Extension is not ".lua") continue;
 					__logger.LogMessage($"Running startup script {fi.Name}");
-					LUA.Script? startupscript = InitBlankScript();
-					startupscript.Globals["rainworld"] = crw_lua;
-					startupscript?.DoFile($"{startup_folder}/{fi.Name}");
+					LUA.Script startupscript = InitBlankScript();
+					startupscript.Globals["rainworld"] = self;
+					LUA.DynValue ret = startupscript.DoFile($"{startup_folder}/{fi.Name}");
+					
+					
+					//if (ret is null || ret.Type is not LUA.DataType.Table) continue;
+					//LUA.Table returns = ret.Table;
+					Dictionary<DynHookEntryPoints, LUA.DynValue> presetHooks = new();
+					
+					foreach (DynHookEntryPoints ep in Enum.GetValues(typeof(DynHookEntryPoints))){
+						if (startupscript.Globals.Get(ep.ToString()) == LUA.DynValue.Nil) continue;
+						Logger.LogDebug($"{fi.Name} registering hook callback for {ep}");
+						presetHooks[ep] = startupscript.Globals.Get(ep.ToString());
+					}
+
+					// foreach (LUA.TablePair pair in returns.Pairs) {
+					// 	if (!Enum.TryParse<DynHookEntryPoints>(pair.Key.ToString(), out DynHookEntryPoints ep)) continue;
+					// 	Logger.LogDebug($"{fi.Name} registering hook callback for {ep}");
+					// 	presetHooks[ep] = pair.Value;
+					// }
+					if (presetHooks.Count is 0) continue;
+					PersistentScriptData psd = new(fi.Name, startupscript, presetHooks);
+					DynamicHooks.__pScripts.Add(psd);
 				}
 				catch (Exception ex) {
-					__logger.LogError($"Error on script execution: {ex}");
+					__logger.LogError($"Error on startup script execution: {ex}");
 				}
 			}
 		}
@@ -128,23 +146,30 @@ public partial class Mod : BIE.BaseUnityPlugin {
 			__logger.LogFatal(ex);
 		}
 	}
-	public void RegisterDescriptors() {
+	private void _RegisterDescriptors() {
 		void registerType(Type t) {
-			List<THR.Tasks.Task> nestedTasks = new();
-			lock (_typeDescriptors) {
-				_typeDescriptors[t] = LUA.UserData.RegisterType(t);
+			//List<THR.Tasks.Task> nestedTasks = new();
+			lock (__typeDescriptors) {
+
+				try { __typeDescriptors[t] = LUA.UserData.RegisterType(t); }
+				catch (Exception ex) { __logger.LogError($"{t.FullName} : {ex}"); }
 			}
-			lock (_staticDescriptors) {
-				_staticDescriptors[t] = LUA.UserData.CreateStatic(t);
+			lock (__staticDescriptors) {
+				try { __staticDescriptors[t] = LUA.UserData.CreateStatic(t); }
+				catch (Exception ex) { __logger.LogError($"{t.FullName} : {ex}"); }
 			}
 			foreach (Type nested in t.GetNestedTypes(BF_ALL_CONTEXTS)) {
-				nestedTasks.Add(THR.Tasks.Task.Run(() => registerType(nested)));
+				registerType(nested);
+				//nestedTasks.Add(THR.Tasks.Task.Run(() => registerType(nested)));
 			}
-			THR.Tasks.Task.WaitAll(nestedTasks.ToArray());
+			//THR.Tasks.Task.WaitAll(nestedTasks.ToArray());
 		}
 		void scanTypes(List<THR.Tasks.Task> typeTasks, IEnumerable<Type> types) {
 			foreach (Type t in types) {
-				typeTasks.Add(THR.Tasks.Task.Run(() => registerType(t)));
+				if (t is null) continue;
+				//typeTasks.Add(THR.Tasks.Task.Run(() => registerType(t)));
+				try { registerType(t); }
+				catch (Exception ex) { __logger.LogError($"{t?.FullName} : {ex}"); }
 			}
 		}
 		List<THR.Tasks.Task> typeTasks = new();
@@ -154,8 +179,16 @@ public partial class Mod : BIE.BaseUnityPlugin {
 	}
 	public static LUA.Script InitBlankScript() {
 		LUA.Script script = new(LUA.CoreModules.Preset_Default);
+		LUA.Table table = new(script);
+		lock (__staticDescriptors) {
+			foreach (KeyValuePair<Type, LUA.DynValue> kvp in __staticDescriptors) {
+				table[kvp.Key.Name] = kvp.Value;
+			}
+		}
 		script.Globals["bepin"] = script.Globals.RegisterModuleType(typeof(LuaModules.Bepin));
 		script.Globals["assets"] = script.Globals.RegisterModuleType(typeof(LuaModules.Assets));
+		script.Globals["hooks"] = script.Globals.RegisterModuleType(typeof(LuaModules.Hooks));
+		script.Globals["statics"] = table;
 		return script;
 	}
 }
