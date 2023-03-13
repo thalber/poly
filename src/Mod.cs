@@ -12,8 +12,6 @@ using static MoonSharp.Interpreter.ModuleRegister;
 
 [BIE.BepInPlugin("rwmodding.coreorg.poly", "Poly", "0.1")]
 public partial class Mod : BIE.BaseUnityPlugin {
-
-	//todo: register all types in assemblycsharp for interop
 	internal static BIE.Logging.ManualLogSource __logger = default!;
 	internal static Dictionary<Type, LUA.Interop.IUserDataDescriptor> __typeDescriptors = new();
 	internal static Dictionary<Type, LUA.DynValue> __staticDescriptors = new();
@@ -22,6 +20,7 @@ public partial class Mod : BIE.BaseUnityPlugin {
 
 	public void OnEnable() {
 		try {
+			_InitConfig();
 			__logger = Logger;
 			On.RainWorld.OnModsInit += _Init; Logger.LogMessage("Poly is running MoonSharp!\n" + LUA.Script.GetBanner());
 			DynamicHooks.__Init();
@@ -32,7 +31,7 @@ public partial class Mod : BIE.BaseUnityPlugin {
 			_fieldOverloads = new(typeof(LUA.Interop.StandardUserDataDescriptor).GetMethod("FillMemberList", BF_ALL_CONTEXTS_INSTANCE), _SupportFieldOverloads);
 			//_fieldOverloads.Apply();
 			//LUA.UserData.RegisterType()
-			_RegisterDescriptors();
+			if (_forceRegisterAsmCsharp.Value) _RegisterDescriptors();
 			//_collectDescriptorsTask = THR.Tasks.Task.Run(() => _RegisterDescriptors());
 		}
 		catch (Exception ex) {
