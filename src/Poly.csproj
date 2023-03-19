@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
 	<PropertyGroup>
 		<LangVersion>11</LangVersion>
 		<TargetFramework>net48</TargetFramework>
@@ -8,6 +7,7 @@
 		<AllowUnsafeBlocks>True</AllowUnsafeBlocks>
 	</PropertyGroup>
 
+	<!-- lib includes -->
 	<ItemGroup>
 		<Reference Include="0Harmony">
 			<HintPath>lib/0Harmony.dll</HintPath>
@@ -33,20 +33,8 @@
 			<HintPath>lib/BepInEx.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
-		<Reference Include="ConfigMachine">
-			<HintPath>lib/ConfigMachine.dll</HintPath>
-			<Private>False</Private>
-		</Reference>
-		<Reference Include="CustomRegions">
-			<HintPath>lib/CustomRegions.dll</HintPath>
-			<Private>False</Private>
-		</Reference>
 		<Reference Include="DevConsole">
 			<HintPath>lib/DevConsole.dll</HintPath>
-			<Private>False</Private>
-		</Reference>
-		<Reference Include="EnumExtender">
-			<HintPath>lib/EnumExtender.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
 		<Reference Include="HOOKS-Assembly-CSharp">
@@ -81,10 +69,6 @@
 			<HintPath>lib/MonoMod.Utils.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
-		<Reference Include="SlugBase">
-			<HintPath>lib/SlugBase.dll</HintPath>
-			<Private>False</Private>
-		</Reference>
 		<Reference Include="UnityEngine">
 			<HintPath>lib/UnityEngine.dll</HintPath>
 			<Private>False</Private>
@@ -107,6 +91,7 @@
 		</Reference>
 	</ItemGroup>
 
+	<!-- Packages -->
 	<ItemGroup>
 	  <PackageReference Include="IronScheme.Core" Version="1.0.320" />
 	  <PackageReference Include="MoonSharp" Version="2.0.0" />

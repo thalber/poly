@@ -21,4 +21,5 @@ global using THR = System.Threading;
 global using UAD = UpdatableAndDeletable;
 global using BIE = BepInEx;
 global using LUA = MoonSharp.Interpreter;
+global using LISP = IronScheme;
 global using JIT = System.Runtime.CompilerServices;

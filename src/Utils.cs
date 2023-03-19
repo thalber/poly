@@ -121,7 +121,7 @@ public static partial class Utils {
 		| BindingFlags.CreateInstance;
 	#endregion
 	#region refl helpers
-	
+
 
 	/// <summary>
 	/// Loads all types from an assembly, ignoring reflection.
@@ -725,6 +725,19 @@ public static partial class Utils {
 	/// </summary>
 	public static FakeProp<T> FakeAutoimpl<T>(this T item) => new(item);
 #endif
+	/// <summary>
+	/// Runs a given action synchronously or asynchronously depending on a given condition
+	/// </summary>
+	/// <param name="ac">Delegate to be executed</param>
+	/// <param name="thread">Whether to use task</param>
+	/// <returns>Task representing the work (Task.CompletedTask if not threaded)</returns>
+	public static THR.Tasks.Task AsyncIf(Action ac, bool thread) {
+		if (thread) return THR.Tasks.Task.Run(ac);
+		else {
+			ac();
+			return THR.Tasks.Task.CompletedTask;
+		}
+	}
 	#endregion
 	#region lua helpers
 	[JIT.MethodImpl(JIT.MethodImplOptions.AggressiveInlining)]

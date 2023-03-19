@@ -15,6 +15,7 @@ public partial class Mod : BIE.BaseUnityPlugin {
 	internal static BIE.Logging.ManualLogSource __logger = default!;
 	internal static Dictionary<Type, LUA.Interop.IUserDataDescriptor> __typeDescriptors = new();
 	internal static Dictionary<Type, LUA.DynValue> __staticDescriptors = new();
+	//internal static HashSet<Type> __nonNestedTypes = new();
 	internal THR.Tasks.Task? _collectDescriptorsTask = null;
 	internal ILHook? _fieldOverloads;
 
@@ -22,6 +23,7 @@ public partial class Mod : BIE.BaseUnityPlugin {
 		try {
 			_InitConfig();
 			__logger = Logger;
+			bool threadReg = _threadedRegistration.Value;
 			On.RainWorld.OnModsInit += _Init; Logger.LogMessage("Poly is running MoonSharp!\n" + LUA.Script.GetBanner());
 			ScriptHooks.__Init();
 			LUA.Script.WarmUp();
@@ -31,7 +33,11 @@ public partial class Mod : BIE.BaseUnityPlugin {
 			_fieldOverloads = new(typeof(LUA.Interop.StandardUserDataDescriptor).GetMethod("FillMemberList", BF_ALL_CONTEXTS_INSTANCE), _SupportFieldOverloads);
 			//_fieldOverloads.Apply();
 			//LUA.UserData.RegisterType()
-			if (_forceRegisterAsmCsharp.Value) _RegisterDescriptors();
+			if (_forceRegisterAsmCsharp.Value){
+				_collectDescriptorsTask = AsyncIf(() => _RegisterDescriptors(_threadedRegistration.Value), _threadedRegistration.Value);
+			}
+			//LISP.Compiler.Parser
+			//LISP.ExecutableLoader x = new()
 			//_collectDescriptorsTask = THR.Tasks.Task.Run(() => _RegisterDescriptors());
 		}
 		catch (Exception ex) {
@@ -142,47 +148,78 @@ public partial class Mod : BIE.BaseUnityPlugin {
 			__logger.LogFatal(ex);
 		}
 	}
-	private void _RegisterDescriptors() {
-		void registerType(Type t) {
-			//List<THR.Tasks.Task> nestedTasks = new();
+	private object? _RegisterDescriptors(bool multithread) {
+		static void registerType(Type t, bool sub_multithread) {
+			List<THR.Tasks.Task>? nestedTasks = sub_multithread ? new() : null;
 			lock (__typeDescriptors) {
-
-				try { __typeDescriptors[t] = LUA.UserData.RegisterType(t); }
-				catch (Exception ex) { __logger.LogError($"{t.FullName} : {ex}"); }
+				try {
+					THR.Tasks.Task item = AsyncIf(() => __typeDescriptors[t] = LUA.UserData.RegisterType(t), sub_multithread);
+					nestedTasks?.Add(item);
+				}
+				catch (Exception ex){
+					if (sub_multithread) throw;
+					else __logger.LogError($"{t.FullName} : {ex}");
+				}
 			}
 			lock (__staticDescriptors) {
-				try { __staticDescriptors[t] = LUA.UserData.CreateStatic(t); }
-				catch (Exception ex) { __logger.LogError($"{t.FullName} : {ex}"); }
+				try {
+					THR.Tasks.Task item = AsyncIf(() => __staticDescriptors[t] = LUA.UserData.CreateStatic(t), sub_multithread);
+					nestedTasks?.Add(item);
+				}
+				catch (Exception ex){
+					if (sub_multithread) throw;
+					else __logger.LogError($"{t.FullName} : {ex}");
+				}
 			}
+			// lock (__nonNestedTypes) {
+			// 	if (t.DeclaringType is not null) __nonNestedTypes.Add(t);
+			// }
 			foreach (Type nested in t.GetNestedTypes(BF_ALL_CONTEXTS)) {
-				registerType(nested);
-				//nestedTasks.Add(THR.Tasks.Task.Run(() => registerType(nested)));
+				if (sub_multithread) nestedTasks!.Add(THR.Tasks.Task.Run(() => registerType(nested, true)));
+				else registerType(nested, false);
 			}
-			//THR.Tasks.Task.WaitAll(nestedTasks.ToArray());
+			if (sub_multithread) THR.Tasks.Task.WaitAll(nestedTasks!.ToArray());
 		}
-		void scanTypes(List<THR.Tasks.Task> typeTasks, IEnumerable<Type> types) {
+		static void scanTypes(List<THR.Tasks.Task> typeTasks, IEnumerable<Type> types, bool sub_multithread) {
 			foreach (Type t in types) {
 				if (t is null) continue;
-				//typeTasks.Add(THR.Tasks.Task.Run(() => registerType(t)));
-				try { registerType(t); }
-				catch (Exception ex) { __logger.LogError($"{t?.FullName} : {ex}"); }
+				if (sub_multithread) typeTasks.Add(THR.Tasks.Task.Run(() => registerType(t, true)));
+				else try { registerType(t, false); }
+					catch (Exception ex) { __logger.LogError($"{t?.FullName} : {ex}"); }
 			}
 		}
 		List<THR.Tasks.Task> typeTasks = new();
-		scanTypes(typeTasks, typeof(AboveCloudsView).Assembly.GetTypesSafe(out RFL.ReflectionTypeLoadException? err));
-		scanTypes(typeTasks, typeof(Vector2).Assembly.GetTypesSafe(out RFL.ReflectionTypeLoadException? err1));
-		THR.Tasks.Task.WaitAll(typeTasks.ToArray());
+		scanTypes(typeTasks, typeof(AboveCloudsView).Assembly.GetTypesSafe(out RFL.ReflectionTypeLoadException? err), multithread);
+		scanTypes(typeTasks, typeof(Vector2).Assembly.GetTypesSafe(out RFL.ReflectionTypeLoadException? err1), multithread);
+		if (multithread) THR.Tasks.Task.WaitAll(typeTasks.ToArray());
+		return null;
 	}
 	public static LUA.Script InitBlankScript() {
 		string getFullName(Type t) {
 			if (t.DeclaringType is Type dect) return $"{getFullName(dect)}.{t.Name}";
 			return t.Name;
 		}
-
+		// object? recordType(LUA.Table table, Type t) {
+		// 	if (table is null){
+		// 		__logger.LogWarning($"{t.Name} null table!");
+		// 		return null;
+		// 	}
+		// 	table.Set(t.Name, __staticDescriptors[t]);
+		// 	foreach (Type nested in t.GetNestedTypes(BF_ALL_CONTEXTS)) {
+		// 		recordType(table.Get(t.Name).Table, nested);
+		// 	}
+		// 	return null;
+		// }
 		LUA.Script script = new(LUA.CoreModules.Preset_Default);
 		LUA.Table table = new(script);
-		lock (__staticDescriptors) {
-			foreach (KeyValuePair<Type, LUA.DynValue> kvp in __staticDescriptors) {
+
+		// lock (__staticDescriptors) lock (__nonNestedTypes) {
+		// 		foreach (Type t in __nonNestedTypes) {
+		// 			recordType(script.Globals, t);
+		// 		}
+		// 	}
+		lock (__staticDescriptors){
+			foreach (KeyValuePair<Type, LUA.DynValue> kvp in __staticDescriptors){
 				table[getFullName(kvp.Key)] = kvp.Value;
 			}
 		}
